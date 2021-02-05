@@ -1,0 +1,4 @@
+#!/bin/bash
+
+which -s watchexec || brew install watchexec
+watchexec -r -c "./bin/assemble && ./target/main"

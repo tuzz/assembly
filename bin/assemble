@@ -1,0 +1,8 @@
+#!/bin/bash
+
+as src/main.s -o target/main.o                                              && \
+                                                                               \
+ld target/main.o -o target/main                                                \
+   -arch arm64                                                                 \
+   -syslibroot `xcrun -sdk macosx --show-sdk-path`                             \
+   -lSystem
