@@ -1,8 +1,13 @@
 #!/bin/bash
 
-as src/main.s -o target/main.o                                              && \
+if [ "$#" -ne 1 ]; then
+  echo "Usage: ./bin/assemble name"
+  exit 1
+fi
+
+as src/$1.s -o target/$1.o                                                  && \
                                                                                \
-ld target/main.o -o target/main                                                \
+ld target/$1.o -o target/$1                                                    \
    -arch arm64                                                                 \
    -syslibroot `xcrun -sdk macosx --show-sdk-path`                             \
    -lSystem
