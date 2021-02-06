@@ -1,0 +1,163 @@
+#!/usr/bin/env ruby
+
+n = ARGV[0].to_i
+
+if n == 0
+  puts "Usage: ./bin/generate n"
+  exit 1
+end
+
+def generate(n)
+  print_boilerplate
+  print_main(n)
+
+  # For each permutation of n digits.
+  1.upto(n).to_a.permutation do |perm|
+    print_node_pre(perm)
+
+    # For an increasing number of wasted characters. This limits the maximum
+    # number of wasted characters to n - 2, which means there must be _some_
+    # overlap of characters between permutations - they are not disjoint.
+    0.upto(n - 2) do |waste|
+
+      # Recursively generate the list of next permutations that can be reached
+      # from this one if the given number of characters are wasted.
+      recursively_generate(n, perm, waste) do |next_perm|
+        print_edge(perm, next_perm)
+      end
+    end
+
+    print_node_post(perm)
+  end
+end
+
+def recursively_generate(n, string, remaining_waste, &block)
+  # For each digit.
+  1.upto(n) do |digit|
+
+    # Add the digit to the end of the string we've built so far.
+    new_string = string + [digit]
+
+    # Get the last n characters from the string.
+    tail = new_string[-n..]
+
+    # Check if this digit added a new permutation to the string.
+    added_a_permutation = tail.uniq.size == n
+
+    # If we added a permutation too soon, don't expand this string any further.
+    # This ensures no permutation appears more than once in the final string.
+    next if added_a_permutation && remaining_waste > 0
+
+    # If we've wasted enough characters, we can now yield the tail of the
+    # string, but only if it just added a permutation.
+    if remaining_waste == 0
+      yield tail if added_a_permutation
+    else
+      # Otherwise, call recursively, decrementing the remaining waste.
+      recursively_generate(n, new_string, remaining_waste - 1, &block)
+    end
+  end
+end
+
+def print_boilerplate
+  puts ".global _main"
+  puts ".align 2"
+  puts
+  puts
+end
+
+def print_main(n)
+  # Start from the 1..n permutation in the directed graph.
+  start_perm = 1.upto(n).to_a.join
+
+  puts "_main:"
+
+  # Clear all the registers to ensure we haven't visited any permutations yet.
+  # These are stored in a bitset than spans multiple registers (see below).
+  0.upto(30) do |register|
+    puts "  mov x#{register}, #0"
+  end
+  puts
+
+  # Unconditionally branch to the start permutation, setting a return address.
+  puts "  bl visit_#{start_perm}"
+
+  # After the depth-first search has finished, ask the supervisor to exit.
+  puts "  mov x16, #1"
+  puts "  svc 0"
+end
+
+# Print some assembly for a permutation node we can visit in the graph.
+def print_node_pre(perm)
+  # Look up the bit we're using to record whether we've visited perm.
+  register, _index, mask = bitset_position(perm)
+
+  puts
+  puts
+
+  # Add a label that can be jumped to to visit this permutation.
+  puts "visit_#{perm.join}:"
+
+  # Push the address of the instruction we branched onto the stack so we can
+  # return later. x30 will be clobbered by recursive calls.
+  puts "  str x30, [sp, -16]!"
+
+  # Use an exclusive-or operation to toggle the bit that records whether we've
+  # visited this permutation. This will be set from 0 -> 1.
+  puts "  eor x#{register}, x#{register}, ##{mask}"
+  puts
+end
+
+# Print some assembly for an edge that leads to another permutation in the graph.
+def print_edge(perm, next_perm)
+  label_name = "after_#{perm.join}_#{next_perm.join}"
+
+  # Look up the bit we're using to record whether we've visited next_perm.
+  register, index, _mask = bitset_position(next_perm)
+
+  # If we've already visited the permutation, skip the following line.
+  puts "  tbnz x#{register}, ##{index}, #{label_name}"
+
+  # Visit the permutation.
+  puts "  bl visit_#{next_perm.join}"
+
+  # Add a label so there's somewhere to branch to (from above).
+  puts "  #{label_name}:"
+  puts
+end
+
+# Print the remainder of the assembly for a node that unwinds the call stack.
+def print_node_post(perm)
+  # Look up the bit we're using to record whether we've visited perm.
+  register, _index, mask = bitset_position(perm)
+
+  # Use an exclusive-or operation to toggle the bit that records whether we've
+  # visited this permutation. This will be set from 1 -> 0 (we're unwinding).
+  puts "  eor x#{register}, x#{register}, ##{mask}"
+
+  # Pop the address of the instruction we originally branched from.
+  puts "  ldr x30, [sp], 16"
+
+  # Return to the address we just popped.
+  puts "  ret"
+end
+
+# The assembly program uses CPU registers to record which permutatons we've
+# visited. It treats a series of registers as a bitset we can index into.
+# Some instructions use this index and some use 2^index so we return both.
+def bitset_position(perm)
+  @positions ||= {}
+
+  # If this is the first time we've seen this permutation, give it a position.
+  if @positions[perm].nil?
+    @positions[perm] = @positions.size
+  end
+
+  position = @positions[perm]
+  register, index = position.divmod(64)
+  bitmask = 2 ** index
+
+  [register, index, bitmask]
+end
+
+generate(n)
