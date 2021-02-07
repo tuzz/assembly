@@ -8,7 +8,7 @@ if n == 0
 end
 
 def generate(n)
-  print_boilerplate
+  set_permutation_ids(n)
   print_main(n)
 
   # For each permutation of n digits.
@@ -59,17 +59,23 @@ def recursively_generate(n, string, remaining_waste, &block)
   end
 end
 
-def print_boilerplate
-  puts ".global _main"
-  puts ".align 2"
-  puts
-  puts
+# Give each permutation a unique id (index).
+def set_permutation_ids(n)
+  @permutation_ids = {}
+
+  1.upto(n).to_a.permutation do |perm|
+    @permutation_ids[perm] = @permutation_ids.size
+  end
 end
 
 def print_main(n)
   # Start from the 1..n permutation in the directed graph.
   start_perm = 1.upto(n).to_a.join
 
+  puts ".global _main"
+  puts ".align 2"
+  puts
+  puts
   puts "_main:"
 
   # Clear all the registers to ensure we haven't visited any permutations yet.
@@ -146,14 +152,7 @@ end
 # visited. It treats a series of registers as a bitset we can index into.
 # Some instructions use this index and some use 2^index so we return both.
 def bitset_position(perm)
-  @positions ||= {}
-
-  # If this is the first time we've seen this permutation, give it a position.
-  if @positions[perm].nil?
-    @positions[perm] = @positions.size
-  end
-
-  position = @positions[perm]
+  position = @permutation_ids[perm]
   register, index = position.divmod(64)
   bitmask = 2 ** index
 
