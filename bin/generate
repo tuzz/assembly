@@ -72,6 +72,13 @@ def print_main(n)
   # Start from the 1..n permutation in the directed graph.
   start_perm = 1.upto(n).to_a.join
 
+  # Get the number of nodes so we can use it as the maximum stack depth.
+  num_nodes = 1.upto(n).inject(:*)
+  num_nodes += 1 if num_nodes.odd?
+
+  # Get the number of nodes in the graph so we can use it as max recursion depth.
+  num_nodes = 1.upto(n).inject(:*)
+
   puts ".global _main"
   puts ".align 2"
   puts
@@ -83,6 +90,11 @@ def print_main(n)
   0.upto(30) do |register|
     puts "  mov x#{register}, #0"
   end
+  puts
+
+  # Use x29 as a replacement stack pointer so that we can use it in a 'csel'.
+  puts "  mov x29, sp"
+  puts "  sub sp, sp, ##{8 * num_nodes}"
   puts
 
   # Unconditionally branch to the start permutation, setting a return address.
@@ -106,7 +118,7 @@ def print_node_pre(perm)
 
   # Push the address of the instruction we branched onto the stack so we can
   # return later. x30 will be clobbered by recursive calls.
-  puts "  str x30, [sp, -16]!"
+  puts "  str x30, [x29, -8]!"
 
   # Use an exclusive-or operation to toggle the bit that records whether we've
   # visited this permutation. This will be set from 0 -> 1.
@@ -142,7 +154,7 @@ def print_node_post(perm)
   puts "  eor x#{register}, x#{register}, ##{mask}"
 
   # Pop the address of the instruction we originally branched from.
-  puts "  ldr x30, [sp], 16"
+  puts "  ldr x30, [x29], 8"
 
   # Return to the address we just popped.
   puts "  ret"
