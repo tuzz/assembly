@@ -26,10 +26,22 @@
 ; node and skip past it if we have. We could use the 'tbz' instruction instead
 ; of following it with 'bl' but 'tbz' does not set the hint that we're going to
 ; return here later, which could mess with CPU branch prediction.
+;
+; Note: If we want to recover the last path through graph, e.g. if writing a
+; search algorithm (A*) that jumps when it finds a solution, we could change the
+; 'str' and 'ldr' instructions to 'stp' and 'ldp' to store a pair of values on
+; the stack, i.e. the stack pointer plus an id of the node we just visited. We
+; can then read these interlaced values back from stack memory at the end.
+;
+; Alternatively, we could store the current bitset register (x0 in this example)
+; as a means of recovering the path, but this becomes much more complicated
+; because we somehow need to figure out which register it originated from. The
+; advantage of this approach is it would save one instruction: the second 'eor'.
 
 _main:
   mov x0, #0             ; we haven't visited any nodes yet
   bl visit_a;            ; visit node A
+
   mov x16, #1            ; system exit
   svc 0                  ; supervisor call
 
