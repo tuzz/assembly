@@ -81,6 +81,7 @@ def print_main(n)
 
   # Unconditionally branch to the start permutation, setting a return address.
   puts "  bl visit_#{start_perm}"
+  puts
 
   # After the depth-first search has finished, ask the supervisor to exit.
   puts "  mov x16, #1"
@@ -90,16 +91,17 @@ end
 # Print some assembly for a permutation node we can visit in the graph.
 def print_node_pre(perm)
   # Look up the bit we're using to record whether we've visited perm.
-  register, _index, mask = bitset_position(perm)
-
-  puts
-  puts
+  register, index, mask = bitset_position(perm)
 
   # Add a label that can be jumped to to visit this permutation.
-  puts "visit_#{perm.join}:"
+  puts "\n\nvisit_#{perm.join}:"
 
-  # Push the address of the instruction we branched onto the stack so we can
-  # return later. x30 will be clobbered by recursive calls.
+  # If we've already visited this permutation, branch straight to the return.
+  puts "  tbnz x#{register}, ##{index}, return_#{perm.join}"
+  puts
+
+  # Push the address of the instruction we branched from onto the stack so we
+  # can return later. x30 will be clobbered by recursive calls.
   puts "  str x30, [sp, -16]!"
 
   # Use an exclusive-or operation to toggle the bit that records whether we've
@@ -110,20 +112,7 @@ end
 
 # Print some assembly for an edge that leads to another permutation in the graph.
 def print_edge(perm, next_perm)
-  label_name = "after_#{perm.join}_#{next_perm.join}"
-
-  # Look up the bit we're using to record whether we've visited next_perm.
-  register, index, _mask = bitset_position(next_perm)
-
-  # If we've already visited the permutation, skip the following line.
-  puts "  tbnz x#{register}, ##{index}, #{label_name}"
-
-  # Visit the permutation.
   puts "  bl visit_#{next_perm.join}"
-
-  # Add a label so there's somewhere to branch to (from above).
-  puts "  #{label_name}:"
-  puts
 end
 
 # Print the remainder of the assembly for a node that unwinds the call stack.
@@ -131,12 +120,18 @@ def print_node_post(perm)
   # Look up the bit we're using to record whether we've visited perm.
   register, _index, mask = bitset_position(perm)
 
+
   # Use an exclusive-or operation to toggle the bit that records whether we've
   # visited this permutation. This will be set from 1 -> 0 (we're unwinding).
+  puts
   puts "  eor x#{register}, x#{register}, ##{mask}"
 
   # Pop the address of the instruction we originally branched from.
   puts "  ldr x30, [sp], 16"
+
+  # Add a label so there's somewhere to branch to (from above).
+  puts
+  puts "  return_#{perm.join}:"
 
   # Return to the address we just popped.
   puts "  ret"
