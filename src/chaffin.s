@@ -17,10 +17,12 @@
 
 _main:
   mov x29, sp               ; use x29 as a replacement stack pointer
-  sub sp, sp, #2            ; move the stack pointer down so we can access its memory
+  sub sp, sp, #(2 + 30)     ; move the stack pointer down so we can access its memory
+
+  mov x28, sp               ; point x28 to some memory beneath our replacement stack
+  bl init_best_depths       ; initialize the 'best_depths' array at that address
 
   mov x22, x29              ; the best depth we've seen so far is the current depth
-  adr x28, best_depths      ; store this memory address in a register
   add x27, x28, #(4 * 2)    ; initially, max offset is indented by four 16-bit integers
 
   mov x0, #0                ; we haven't visited any nodes yet
@@ -103,7 +105,14 @@ visit_12:
 visit_21:
   ret ; omitted for brevity, this would follow the same kind of structure as above
 
-best_depths:
-  .fill 5, 2, 8192          ; initialize to an array of large values that's large
-                            ; enough to hold n! / n + 4 elements for the best
-                            ; recursion depths for some number of wasted characters
+init_best_depths:
+  mov x0, #0                ; start from a 0-byte offset of the 'best_depths' array
+  mov x1, #8192             ; a large-ish 16-bit number to write to the array
+
+  loop:
+    str x1, [x28, x0]       ; set the 16-bit array element at the current offset
+    add x0, x0, #2          ; advance the offset by four 16-bit integers
+    cmp x0, #10             ; stop once we've set two registers of 16-bit integers
+    b.ne loop
+
+  ret
