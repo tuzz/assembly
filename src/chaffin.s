@@ -30,14 +30,14 @@ _main:
 
   next_subproblem:
   mov x26, x27              ; reset the current offset to the maximum offset
-  bl visit_12;              ; start from permutation 12
+  bl visit_12;              ; exhaustively search, starting from permutation 12
 
-  ; TODO: update best_depths
-
+  sub x24, x22, x29         ; calculate the best (relative) recursion depth we reached
+  str x24, [x27, -2]        ; store the best depth in the best_depths array
   add x27, x27, #2          ; increase the maximum offset (allowed wasted characters)
-  ;b next_subproblem        ; start working on solving the next subproblem
 
-  ; TODO: detect when done
+  cmp x24, #(2 * -8)        ; check if we managed to visit all permutations last run
+  b.ne next_subproblem      ; if we didn't, start working on solving the next subproblem
 
   mov x16, #1               ; system exit
   svc 0                     ; supervisor call
@@ -99,10 +99,11 @@ visit_12:
   unwind_12:
   sub x26, x26, #-8         ; reset the current offset to how it was before
   eor x0, x0, #1            ; mark 12 as unvisited
-  ldr x30, [x29], 8         ; pop the return address from the stack
+  ldr x30, [x29], #8        ; pop the return address from the stack
   ret
 
 visit_21:
+  sub x22, x29, #8
   ret ; omitted for brevity, this would follow the same kind of structure as above
 
 init_best_depths:
