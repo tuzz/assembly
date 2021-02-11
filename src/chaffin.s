@@ -23,17 +23,17 @@ _main:
   bl init_best_depths       ; initialize the 'best_depths' array at that address
 
   mov x22, x29              ; the best depth we've seen so far is the current depth
-  add x27, x28, #(4 * 2)    ; initially, max offset is indented by four 16-bit integers
+  mov x27, x28              ; set max offset to the start of the best_depths array
 
   mov x0, #0                ; we haven't visited any nodes yet
                             ; (clear the other registers here, too)
 
   next_subproblem:
   mov x26, x27              ; reset the current offset to the maximum offset
-  bl visit_12;              ; exhaustively search, starting from permutation 12
+  bl visit_12               ; exhaustively search, starting from permutation 12
 
   sub x24, x22, x29         ; calculate the best (relative) recursion depth we reached
-  str x24, [x27, -2]        ; store the best depth in the best_depths array
+  str x24, [x27, 6]         ; store the best depth in the best_depths array
   add x27, x27, #2          ; increase the maximum offset (allowed wasted characters)
 
   cmp x24, #(2 * -8)        ; check if we managed to visit all permutations last run
@@ -58,46 +58,63 @@ visit_12:
   sub x26, x26, #2          ; visiting the following permutations wastes one more
                             ; character (moves the offset back 2-bytes / 16-bits)
 
-  ldr x25, [x26, -8]        ; read four 16-bit integers, corresponding to the
+  ldr x25, [x26]            ; read four 16-bit integers, corresponding to the
                             ; best extra recursion depths we could hope to add
                             ; for 1, 2, 3 and 4 additional wasted characters
 
-  ubfm x24, x25, #0, #15    ; extract the first 16-bit integer from the register
+  sbfx x24, x25, #48, #16   ; extract the first 16-bit integer from the register
   add x23, x29, x24         ; find the best recursion depth we could hope to reach
 
   cmp x23, x22              ; compare the reachable depth with the best depth
-  b.ge unwind_12            ; if this string has no hope of beating it, return early
+  b.lt waste_1_12           ; if the string could possibly beat it, keep going
 
+  add x26, x26, #2          ; otherwise, reset the array offset to how it was...
+  b unwind_12               ; ...and return early
+
+  waste_1_12:
                             ; visit permutations that can be reached in 1 wasted character
                             ; (there aren't any for n=2)
 
   ;;; 2 wasted characters ;;;
   sub x26, x26, #2          ; based on the code above ^ but for one more wasted character
-  ubfm x24, x25, #16, #31   ; extract the second 16-bit integer from the register
+  sbfx x24, x25, #32, #16   ; extract the second 16-bit integer from the register
+  add x23, x29, x24
   cmp x23, x22
-  b.ge unwind_12
+  b.lt waste_2_12
+  add x26, x26, #4
+  b unwind_12
+  waste_2_12:
 
                             ; visit permutations that can be reached in 2 wasted characters
                             ; ...
 
   ;;; 3 wasted characters ;;;
   sub x26, x26, #2          ; based on the code above ^ but for one more wasted character
-  ubfm x24, x25, #32, #47   ; extract the third 16-bit integer from the register
+  sbfx x24, x25, #16, #16   ; extract the third 16-bit integer from the register
+  add x23, x29, x24
   cmp x23, x22
-  b.ge unwind_12
+  b.lt waste_3_12
+  add x26, x26, #6
+  b unwind_12
+  waste_3_12:
                             ; visit permutations that can be reached in 3 wasted characters
                             ; ...
 
   ;;; 4 wasted characters ;;;
   sub x26, x26, #2          ; based on the code above ^ but for one more wasted character
-  ubfm x24, x25, #48, #63   ; extract the fourth 16-bit integer from the register
+  sbfx x24, x25, #0, #16    ; extract the fourth 16-bit integer from the register
+  add x23, x29, x24
   cmp x23, x22
-  b.ge unwind_12
+  b.lt waste_4_12
+  add x26, x26, #8
+  b unwind_12
+  waste_4_12:
                             ; visit permutations that can be reached in 4 wasted characters
                             ; ...
 
+
+  add x26, x26, #8          ; reset the offset to how it was before if no branching occurred
   unwind_12:
-  sub x26, x26, #-8         ; reset the current offset to how it was before
   eor x0, x0, #1            ; mark 12 as unvisited
   ldr x30, [x29], #8        ; pop the return address from the stack
   ret
@@ -108,12 +125,14 @@ visit_21:
 
 init_best_depths:
   mov x0, #0                ; start from a 0-byte offset of the 'best_depths' array
-  mov x1, #8192             ; a large-ish 16-bit number to write to the array
+  mov x1, #32767            ; write the 16-bit max value to the array (2^15 - 2)
 
   loop:
     str x1, [x28, x0]       ; set the 16-bit array element at the current offset
-    add x0, x0, #2          ; advance the offset by four 16-bit integers
-    cmp x0, #10             ; stop once we've set two registers of 16-bit integers
+    add x0, x0, #2          ; advance the offset by one 16-bit integer
+    cmp x0, #10             ; stop once we've written some number of elements
     b.ne loop
 
   ret
+
+dot: .ascii ".\n"
