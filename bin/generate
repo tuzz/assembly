@@ -11,7 +11,9 @@ PALINDROMIC = false
 
 def generate(n)
   set_permutation_ids(n)
+
   print_main(n)
+  print_new_best_depth_fn
 
   # For each permutation of n digits.
   1.upto(n).to_a.permutation do |perm|
@@ -21,21 +23,24 @@ def generate(n)
     # number of wasted characters to n - 2, which means there must be _some_
     # overlap of characters between permutations - they are not disjoint.
     0.upto(n - 2) do |waste|
-      print_waste(waste, perm)
+      print_waste(perm) unless waste == 0
 
       # Recursively generate the list of next permutations that can be reached
       # from this one if the given number of characters are wasted.
       recursively_generate(n, perm, waste) do |next_perm|
         next if PALINDROMIC && perm == next_perm.reverse
 
+        # There's no point adding edges that go back to the start node (123456).
+        next if next_perm.sort == next_perm
+
         print_edge(perm, next_perm)
       end
     end
 
-    print_node_post(perm, n)
+    print_node_post(perm)
   end
 
-  print_strings
+  print_globals
 end
 
 def recursively_generate(n, string, remaining_waste, &block)
@@ -76,191 +81,159 @@ def set_permutation_ids(n)
 end
 
 def print_main(n)
-  # Start from the 1..n permutation in the directed graph.
   start_perm = 1.upto(n).to_a.join
+  num_perms = 1.upto(n).inject(:*)
 
-  # Get the number of nodes so we can use it as the maximum stack depth.
-  num_nodes = 1.upto(n).inject(:*)
-  num_nodes += 1 if num_nodes.odd?
+  puts <<~ASM
+    .global _main
+    .align 2
 
-  # Get the number of nodes in the graph so we can use it as max recursion depth.
-  num_nodes = 1.upto(n).inject(:*)
+    sysarg_0   .req x0
+    sysarg_1   .req x1
+    sysarg_2   .req x2
 
-  # Pick a number of bytes that's large enough to hold the max_depths array.
-  max_depths_size = 1024;
+    tmp_0      .req x0
+    tmp_1      .req x1
+    tmp_2      .req x2
 
-  puts ".global _main"
-  puts ".align 2"
-  puts
-  puts
-  puts "_main:"
+    visited_0  .req x3
+    visited_1  .req x4
+    visited_2  .req x5
+    visited_3  .req x6
+    visited_4  .req x7
+    visited_5  .req x8
+    visited_6  .req x9
+    visited_7  .req x10
+    visited_8  .req x11
+    visited_9  .req x12
+    visited_10 .req x13
+    visited_11 .req x14
 
-  # Clear all the registers to ensure we haven't visited any permutations yet.
-  # These are stored in a bitset than spans multiple registers (see below).
-  0.upto(30) do |register|
-    puts "  mov x#{register}, #0"
-  end
-  puts
+    rem_waste  .req x15
 
-  # Use x29 as a replacement stack pointer so that we can use it in a 'csel'.
-  puts "  mov x29, sp"
-  puts "  mov x20, ##{8 * num_nodes + max_depths_size}" # Too big for an immediate value.
-  puts "  sub sp, sp, x21"
-  puts
+    sys_call   .req x16
 
-  # Point x28 to some memory beneath our replacement stack pointer.
-  puts "  mov x28, sp"
+    tmp_3      .req x16
 
-  # Loop through the array of 16-bit numbers and set each element to a large value.
-  puts "  mov x0, #0"
-  puts "  mov x1, #32767"
+    max_waste  .req x17
 
-  puts "  loop:"
-  puts "    str x1, [x28, x0]"
-  puts "    add x0, x0, #2"
-  puts "    cmp x0, ##{max_depths_size}"
-  puts "    b.ne loop"
-  puts
+    best_depth .req x18
 
-  puts "  mov x0, #0"
-  puts "  mov x1, #0"
-  puts
+    max_perms .req x29
 
-  # Move the base address of the array in a bit so we can underflow it and still
-  # get valid values back. We need to be able to underflow by about N 16-bit integers.
-  puts "  add x28, x28, #32"
+    return_adr .req x30
 
-  # Set the best depth we've seen so far to the current stack pointer.
-  puts "  mov x22, x29"
+    _main:
+      adrp max_perms, max_perms_array@PAGE
+      add max_perms, max_perms, max_perms_array@PAGEOFF
 
-  # Set the max offset to the start of the best_depths array.
-  puts "  mov x27, x28"
-  puts
+      mov visited_0, 0
+      mov visited_1, 0
+      mov visited_2, 0
+      mov visited_3, 0
+      mov visited_4, 0
+      mov visited_5, 0
+      mov visited_6, 0
+      mov visited_7, 0
+      mov visited_8, 0
+      mov visited_9, 0
+      mov visited_10, 0
+      mov visited_11, 0
 
-  # Reset the current offset to the maximum offset before starting the next subproblem.
-  puts "  next_subproblem:"
-  puts "  mov x26, x27"
+      mov max_waste, 0
+      mov rem_waste, 0
 
-  # Unconditionally branch to the start permutation, setting a return address.
-  puts "  bl visit_#{start_perm}"
-  puts
+      mov best_depth, sp
 
-  # Calculate the best relative recursion depth, store it in the best_depths array
-  # and increase the maximum offset for the next subproblem.
-  puts "  sub x24, x22, x29"
-  puts "  str x24, [x27, 6]"
-  puts "  add x27, x27, #2"
-  puts
+      next_subproblem:
 
-  # Print a number of dots corresponding to the number of permutations found.
-  print_dots
+      bl visit_#{start_perm}
 
-  # Check if we managed to visit all permutations (i.e. the search is finished).
-  puts "  mov x21, #(#{num_nodes} * -8)" # Too big for an immediate value.
-  puts "  cmp x24, x21"
-  puts "  b.ne next_subproblem"
-  puts
+      sub tmp_0, sp, best_depth
+      lsr tmp_0, tmp_0, 4
 
-  # After the depth-first search has finished, ask the supervisor to exit.
-  puts "  mov x16, #1"
-  puts "  svc 0"
+      str tmp_0, [max_perms, max_waste, lsl 3]
+
+      add max_waste, max_waste, 1
+      mov rem_waste, max_waste
+
+      cmp tmp_0, #{num_perms}
+      b.ne next_subproblem
+
+      mov sys_call, 1
+      mov sysarg_0, 0
+      svc 0
+  ASM
 end
 
-# Ideally we'd print the best string we found after each subproblem is solved
-# but this will do for now.
-def print_dots
-  puts
-  puts "  mov x20, x0"
-  puts "  mov x19, x1"
-  puts "  mov x18, x2"
-  puts "  mov x17, #0"
-  puts
-  puts "  print:"
-  puts "  mov x0, #1"
-  puts "  adr x1, dot"
-  puts "  mov x2, #1"
-  puts "  mov x16, #4"
-  puts "  svc 0"
-  puts
-  puts "  sub x17, x17, #8"
-  puts "  cmp x17, x24"
-  puts "  b.ne print"
-  puts
-  puts "  mov x0, #1"
-  puts "  adr x1, newline"
-  puts "  mov x2, #1"
-  puts "  mov x16, #4"
-  puts "  svc 0"
-  puts
-  puts "  mov x0, x20"
-  puts "  mov x1, x19"
-  puts "  mov x2, x18"
-  puts
+def print_new_best_depth_fn
+  puts <<~ASM
+
+
+    new_best_depth_found:
+      mov best_depth, tmp_0
+
+      mov sys_call, 4
+      mov sysarg_0, 1
+      adr sysarg_1, todo
+      mov sysarg_2, 23
+      svc 0
+
+      mov tmp_0, best_depth
+
+      mov best_depth, sp
+      ret
+  ASM
 end
 
-def print_strings
-  puts 'dot: .ascii "."'
-  puts '.align 4'
-  puts
-  puts 'newline: .ascii "\n"'
+def print_globals
+  puts <<~ASM
+
+
+    todo:
+      .ascii "todo: print the string\\n"
+
+    .data
+    max_perms_array:
+      .fill 160, 8, 999999
+  ASM
 end
 
 # Print some assembly for a permutation node we can visit in the graph.
 def print_node_pre(perm)
   # Look up the bit we're using to record whether we've visited perm.
-  register, _index, mask = bitset_position(perm)
+  bitset_index, _bit_index, mask = bitset_position(perm)
 
-  puts
-  puts
+  puts <<~ASM
 
-  # Add a label that can be jumped to to visit this permutation.
-  puts "visit_#{perm.join}:"
 
-  # Push the address of the instruction we branched onto the stack so we can
-  # return later. x30 will be clobbered by recursive calls.
-  puts "  str x30, [x29, -8]!"
+    visit_#{perm.join}:
+      subs tmp_0, sp, best_depth
 
-  # Use an exclusive-or operation to toggle the bit that records whether we've
-  # visited this permutation. This will be set from 0 -> 1.
-  puts "  eor x#{register}, x#{register}, ##{mask}"
-  puts
+      ldr tmp_1, [max_perms, rem_waste, lsl 3]
 
-  # Update the best recursion depth if the current stack pointer is better.
-  puts "  cmp x29, x22"
-  puts "  csel x22, x29, x22, lt"
-  puts
+      cmp tmp_0, tmp_1, lsl 4
+      b.le keep_going_#{perm.join}
+      ret
+      keep_going_#{perm.join}:
+
+      stp return_adr, rem_waste, [sp, -16]!
+
+      eor visited_#{bitset_index}, visited_#{bitset_index}, #{mask}
+
+      cbnz tmp_0, no_improvement_#{perm.join}
+      bl new_best_depth_found
+      no_improvement_#{perm.join}:
+  ASM
 end
 
 # Print some assembly when we move on to the next number of wasted characters.
-def print_waste(waste, perm)
-  return if waste == 0
+def print_waste(perm)
+  puts <<-ASM
 
-  # Move the offset into the max_depths array back by one 16-bit integer.
-  puts "  sub x26, x26, #2"
-
-  # Look up all the max_depths values in one go the first time we need them.
-  puts "  ldr x25, [x26]" if waste == 1
-
-  # Extract the 16-bit integer for the current waste value.
-  start_byte = (4 - waste) * 16
-  puts "  sbfx x24, x25, ##{start_byte}, #16"
-
-  # Find the best recursion depth we could hope to achieve.
-  puts "  add x23, x29, x24"
-
-  # If we can beat the current best recursion depth, keep going.
-  puts "  cmp x23, x22"
-  puts "  b.lt waste_#{waste}_#{perm.join}"
-  puts
-
-  # Otherwise, reset the array offset to how it was.
-  puts "  add x26, x26, ##{waste * 2}"
-  puts "  b unwind_#{perm.join}"
-  puts
-
-  # Add a label we can jump to from above.
-  puts "  waste_#{waste}_#{perm.join}:"
-  puts
+  subs rem_waste, rem_waste, 1
+  b.lt unwind_#{perm.join}
+  ASM
 end
 
 # Print some assembly for an edge that leads to another permutation in the graph.
@@ -268,39 +241,28 @@ def print_edge(perm, next_perm)
   label_name = "after_#{perm.join}_#{next_perm.join}"
 
   # Look up the bit we're using to record whether we've visited next_perm.
-  register, index, _mask = bitset_position(next_perm)
+  bitset_index, bit_index, mask = bitset_position(next_perm)
 
-  # If we've already visited the permutation, skip the following line.
-  puts "  tbnz x#{register}, ##{index}, #{label_name}"
+  puts <<-ASM
 
-  # Visit the permutation.
-  puts "  bl visit_#{next_perm.join}"
-
-  # Add a label so there's somewhere to branch to (from above).
-  puts "  #{label_name}:"
-  puts
+  tbnz visited_#{bitset_index}, #{bit_index}, #{label_name}
+  bl visit_#{next_perm.join}
+  #{label_name}:
+  ASM
 end
 
 # Print the remainder of the assembly for a node that unwinds the call stack.
-def print_node_post(perm, n)
+def print_node_post(perm)
   # Look up the bit we're using to record whether we've visited perm.
-  register, _index, mask = bitset_position(perm)
+  bitset_index, _bit_index, mask = bitset_position(perm)
 
-  # Reset the array offset to how it was for the last waste value.
-  puts "  add x26, x26, ##{(n - 2) * 2}"
+  puts <<-ASM
 
-  # Add a label so we can skip to the end of the subroutine.
-  puts "  unwind_#{perm.join}:"
-
-  # Use an exclusive-or operation to toggle the bit that records whether we've
-  # visited this permutation. This will be set from 1 -> 0 (we're unwinding).
-  puts "  eor x#{register}, x#{register}, ##{mask}"
-
-  # Pop the address of the instruction we originally branched from.
-  puts "  ldr x30, [x29], 8"
-
-  # Return to the address we just popped.
-  puts "  ret"
+  unwind_#{perm.join}:
+  eor visited_#{bitset_index}, visited_#{bitset_index}, #{mask}
+  ldp return_adr, rem_waste, [sp], 16
+  ret
+  ASM
 end
 
 # The assembly program uses CPU registers to record which permutatons we've
@@ -313,10 +275,10 @@ def bitset_position(perm)
     position = @permutation_ids[perm]
   end
 
-  register, index = position.divmod(64)
-  bitmask = 2 ** index
+  bitset_index, bit_index = position.divmod(64)
+  bitmask = 2 ** bit_index
 
-  [register, index, bitmask]
+  [bitset_index, bit_index, bitmask]
 end
 
 generate(n)
