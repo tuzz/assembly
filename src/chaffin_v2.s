@@ -61,6 +61,9 @@ _main:
   adrp max_perms, max_perms_array@PAGE
   add max_perms, max_perms, max_perms_array@PAGEOFF
 
+  ; Indent the start index of the array a bit so we can underflow it slightly.
+  add max_perms, max_perms, 6 * 64
+
   ; Initially, we haven't visited any permutations so clear all the bitsets.
   mov visited_0, 0
   mov visited_1, 0
@@ -138,24 +141,6 @@ new_best_depth_found:
 
 
 visit_123456:
-  ; Calculate how many bytes we are away from from the best recursion depth
-  ; we've seen so far. This value is always positive and will be 16-bytes
-  ; higher than it should be because we haven't moved 'sp' down yet.
-  subs tmp_0, sp, best_depth
-
-  ; Look up the maximum number of permutations we could hope to add to the
-  ; string based on how many wasted characters we have remaining. The max_perms
-  ; array stores elements at 8-byte intervals so left shift the index by 3 bits.
-  ldr tmp_1, [max_perms, rem_waste, lsl 3]
-
-  ; If it might be possible to recurse lower than best_depth then keep going,
-  ; otherwise abandon this string and return back to the previous permutation.
-  ; We check this early to avoid touching stack memory if we can help it.
-  cmp tmp_0, tmp_1, lsl 4
-  b.le keep_going_123456
-  ret
-  keep_going_123456:
-
   ; Push the return address and the number of remaining wasted characters to
   ; the stack so we can restore them later. The return address is overridden
   ; by the next 'branch with link' instruction, i.e. when we recurse.
@@ -167,19 +152,6 @@ visit_123456:
   ; This instruction takes a bitmask so the immediate value needs to be 2^i.
   eor visited_0, visited_0, 1
 
-  ; When tmp_0 is zero, it means we've reached a new recursion depth so call a
-  ; subroutine that sets the new best_depth and prints the current string.
-  ;
-  ; The branching here is negated because we want to provide a branch prediction
-  ; hint using the 'bl' instruction that we will return here in a moment. This
-  ; can help the CPU queue the correct instructions and minimise stalling.
-  ;
-  ; If we don't need to print the string we can avoid branching all-together and
-  ; use a 'csel' instruction to update best_depth. That doesn't support 'sp' as
-  ; an operand but we could then use a register as a replacement stack pointer.
-  cbnz tmp_0, no_improvement_123456
-  bl new_best_depth_found
-  no_improvement_123456:
 
   ; These are all the permutations we can reach without wasting any additional
   ; characters. There will always only be one permutation of this kind.
@@ -193,23 +165,56 @@ visit_123456:
   bl visit_234561
   after_134652_234561:
 
+  ; Calculate how many bytes we are away from from the best recursion depth we've
+  ; seen so far. This value is (usually) positive and a multiple of 16 bytes
+  subs tmp_0, sp, best_depth
+
+  ; If this number is negative it means we've reached a new best recursion
+  ; depth. Call a subroutine that sets the new best_depth and prints the string.
+  ;
+  ; The branching here is negated because we want to provide a branch prediction
+  ; hint using the 'bl' instruction that we will return here in a moment. This
+  ; can help the CPU queue the correct instructions and minimise stalling.
+  ;
+  ; If we don't need to print the string we can avoid branching all-together and
+  ; use a 'csel' instruction to update best_depth. That doesn't support 'sp' as
+  ; an operand but we could then use a register as a replacement stack pointer.
+  b.ge no_improvement_123456
+  bl new_best_depth_found
+  no_improvement_123456:
+
+
   ; These are all the permutations we can reach by wasting 1 character.
   ; ===========================================================================
 
-  ; Decrement the remaining number of wasted characters by 1. If the result is
-  ; negative it means we've run out of wasted characters so return early.
-  subs rem_waste, rem_waste, 1
-  b.lt unwind_123456
+  ; Decrement the remaining number of wasted characters by 1.
+  sub rem_waste, rem_waste, 1
+
+  ; Look up the maximum number of permutations we could hope to add to the
+  ; string based on how many wasted characters we have remaining. The max_perms
+  ; array stores elements at 8-byte intervals so left shift the index by 3 bits.
+  ldr tmp_1, [max_perms, rem_waste, lsl 3]
+
+  ; If it might be possible to recurse lower than best_depth then keep going,
+  ; otherwise abandon this string and return back to the previous permutation.
+  cmp tmp_0, tmp_1, lsl 4
+  b.ge unwind_123456
 
   tbnz visited_4, 49, after_123456_345621
   bl visit_345621
   after_123456_345621:
 
+
   ; These are all the permutations we can reach by wasting 2 characters.
   ; ===========================================================================
 
-  subs rem_waste, rem_waste, 1
-  b.lt unwind_123456
+  sub rem_waste, rem_waste, 1
+
+  sub tmp_0, sp, best_depth
+  ldr tmp_1, [max_perms, rem_waste, lsl 3]
+
+  cmp tmp_0, tmp_1, lsl 4
+  b.ge unwind_123456
 
   ; Omitted for brevity.
   ;
@@ -251,10 +256,10 @@ todo:
 ; permutations that fit into a string that contains i wasted characters.
 ;
 ; The best known superpermutation for N=6 has 872 characters and it therefore
-; wastes 872 - n! - (n - 1) = 147 characters so 160 elements should be enough.
+; wastes 872 - n! - (n - 1) = 147 characters so 200 elements should be enough.
 ;
 ; We initialize the array to large values because we don't yet know what the
 ; maximum number of permutations is for each number of wasted characters.
 .data
 max_perms_array:
-  .fill 160, 8, 999999
+  .fill 200, 8, 0

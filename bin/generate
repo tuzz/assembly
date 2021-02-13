@@ -23,7 +23,7 @@ def generate(n)
     # number of wasted characters to n - 2, which means there must be _some_
     # overlap of characters between permutations - they are not disjoint.
     0.upto(n - 2) do |waste|
-      print_waste(perm) unless waste == 0
+      print_waste_a(perm, waste) unless waste.zero?
 
       # Recursively generate the list of next permutations that can be reached
       # from this one if the given number of characters are wasted.
@@ -35,6 +35,8 @@ def generate(n)
 
         print_edge(perm, next_perm)
       end
+
+      print_waste_b(perm, waste) if waste.zero?
     end
 
     print_node_post(perm)
@@ -126,6 +128,7 @@ def print_main(n)
     _main:
       adrp max_perms, max_perms_array@PAGE
       add max_perms, max_perms, max_perms_array@PAGEOFF
+      add max_perms, max_perms, #{n * 64}
 
       mov visited_0, 0
       mov visited_1, 0
@@ -153,6 +156,26 @@ def print_main(n)
       lsr tmp_0, tmp_0, 4
 
       str tmp_0, [max_perms, max_waste, lsl 3]
+
+      mov x24, tmp_0
+      mov x25, 0
+
+      print:
+      mov sys_call, 4
+      mov sysarg_0, 1
+      adr sysarg_1, dot
+      mov sysarg_2, 1
+      svc 0
+
+      add x25, x25, 1
+      cmp x25, x24
+      b.ne print
+
+      mov sys_call, 4
+      mov sysarg_0, 1
+      adr sysarg_1, newline
+      mov sysarg_2, 1
+      svc 0
 
       add max_waste, max_waste, 1
       mov rem_waste, max_waste
@@ -192,10 +215,18 @@ def print_globals
 
     todo:
       .ascii "todo: print the string\\n"
+      .align 4
+
+    dot:
+      .ascii "."
+      .align 4
+
+    newline:
+      .ascii "\n"
 
     .data
     max_perms_array:
-      .fill 160, 8, 999999
+      .fill 200, 8, 0
   ASM
 end
 
@@ -208,32 +239,31 @@ def print_node_pre(perm)
 
 
     visit_#{perm.join}:
-      subs tmp_0, sp, best_depth
-
-      ldr tmp_1, [max_perms, rem_waste, lsl 3]
-
-      cmp tmp_0, tmp_1, lsl 4
-      b.le keep_going_#{perm.join}
-      ret
-      keep_going_#{perm.join}:
-
       stp return_adr, rem_waste, [sp, -16]!
 
       eor visited_#{bitset_index}, visited_#{bitset_index}, #{mask}
-
-      cbnz tmp_0, no_improvement_#{perm.join}
-      bl new_best_depth_found
-      no_improvement_#{perm.join}:
   ASM
 end
 
 # Print some assembly when we move on to the next number of wasted characters.
-def print_waste(perm)
-  puts <<-ASM
+def print_waste_a(perm, waste)
+  puts
+  puts "  sub rem_waste, rem_waste, 1"
+  puts
+  puts "  sub tmp_0, sp, best_depth"
+  puts "  ldr tmp_1, [max_perms, rem_waste, lsl 3]"
+  puts
+  puts "  cmp tmp_0, tmp_1, lsl 4"
+  puts "  b.ge unwind_#{perm.join}"
+end
 
-  subs rem_waste, rem_waste, 1
-  b.lt unwind_#{perm.join}
-  ASM
+def print_waste_b(perm, waste)
+  puts
+  puts "  subs tmp_0, sp, best_depth"
+  puts
+  puts "  b.ge no_improvement_#{perm.join}"
+  puts "  bl new_best_depth_found"
+  puts "  no_improvement_#{perm.join}:"
 end
 
 # Print some assembly for an edge that leads to another permutation in the graph.

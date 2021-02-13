@@ -7,7 +7,7 @@ fi
 
 mkdir -p target                                                             && \
                                                                                \
-as src/$1.s -o target/$1.o                                                  && \
+as -arch arm64 src/$1.s -o target/$1.o                                      && \
                                                                                \
 ld target/$1.o -o target/$1                                                    \
    -arch arm64                                                                 \
