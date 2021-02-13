@@ -1,0 +1,237 @@
+#!/usr/bin/env ruby
+
+n = ARGV[0].to_i
+
+if n == 0
+  puts "Usage: ./bin/generate n"
+  exit 1
+end
+
+require "stringio"
+require "tempfile"
+
+PALINDROMIC = false
+
+def incremental(n)
+  set_permutation_ids(n)
+  start_time = Time.now
+
+  max_perms = [n]
+  allowed_waste = 1
+  best_depth = n
+
+  max_depth = 1.upto(n).inject(:*)
+  max_depth /= 2 if PALINDROMIC
+
+  puts "time  waste   max permutations"
+  loop do
+    assembly = generate_assembly(n, max_perms, allowed_waste, best_depth)
+    executable = assemble(assembly)
+
+    system(executable)
+
+    perms_added = $?.exitstatus
+    best_depth += perms_added
+
+    time_taken = Time.now - start_time
+    print "#{time_taken.round(1)} :: W=#{allowed_waste} :: "
+
+    if perms_added.zero? || perms_added == n
+      break if best_depth == max_perms.last
+
+      allowed_waste += 1
+      max_perms.push(best_depth)
+
+      puts max_perms.inspect
+
+    elsif allowed_waste == 0
+      puts "[?#{best_depth}]"
+    else
+      puts max_perms.inspect.gsub("]", ",?#{best_depth}]")
+    end
+
+    break if best_depth == max_depth
+  end
+
+  if best_depth == max_depth
+    puts "finished"
+  else
+    puts "got stuck: unable to add any more permutations"
+  end
+end
+
+def generate_assembly(n, max_perms, allowed_waste, best_depth)
+  io = StringIO.new
+
+  start_perm = 1.upto(n).to_a.join
+
+  io.puts <<~ASM
+    .global _main
+    .align 2
+
+
+    _main:
+  ASM
+
+  0.upto(30) do |register|
+    io.puts "  mov x#{register}, 0"
+  end
+
+  io.puts
+  io.puts <<~ASM
+      bl visit_#{start_perm}_0
+
+    exit_failure:
+      mov x0, 0
+      mov x16, 1
+      svc 0
+
+    exit_success:
+      mov x0, x29
+      mov x16, 1
+      svc 0
+  ASM
+
+  0.upto(allowed_waste) do |current_waste|
+    1.upto(n).to_a.permutation do |current_perm|
+      curr_bitset_index, _curr_bit_index, curr_mask = bitset_position(current_perm)
+
+      io.puts <<~ASM
+        \n
+        visit_#{current_perm.join}_#{current_waste}:
+          str x30, [sp, -16]!
+          eor x#{curr_bitset_index}, x#{curr_bitset_index}, #{curr_mask}
+          add x29, x29, 1
+      ASM
+
+      0.upto(n - 4) do |additional_waste|
+        next_waste = current_waste + additional_waste
+        next if next_waste > allowed_waste
+
+        remaining_waste = allowed_waste - next_waste
+        possible_perms = max_perms[remaining_waste]
+
+        # Get the number of permutations we need to have if we want to stand a
+        # chance of beating the best perms we've already seen.
+        perms_to_beat = best_depth - possible_perms if possible_perms
+
+        if additional_waste != 0 && perms_to_beat
+          io.puts <<~ASM
+            \
+              cmp x29, #{perms_to_beat}
+              b.le unvisit_#{current_perm.join}_#{current_waste}
+          ASM
+        end
+
+        recursively_generate(n, current_perm, additional_waste) do |next_perm|
+          next if PALINDROMIC && current_perm == next_perm.reverse
+          next if next_perm.sort == next_perm
+
+          next_bitset_index, next_bit_index, _next_mask = bitset_position(next_perm)
+          label_name = "after_#{current_perm.join}_#{current_waste}_#{next_perm.join}"
+
+          io.puts <<~ASM
+            \
+
+              tbnz x#{next_bitset_index}, #{next_bit_index}, #{label_name}
+              bl visit_#{next_perm.join}_#{next_waste}
+              #{label_name}:
+
+          ASM
+        end
+      end
+
+      if current_waste == allowed_waste
+        io.puts <<~ASM
+          \
+            subs x29, x29, #{best_depth}
+            b.gt exit_success
+        ASM
+      end
+
+      io.puts <<~ASM
+        \n
+        unvisit_#{current_perm.join}_#{current_waste}:
+          eor x#{curr_bitset_index}, x#{curr_bitset_index}, #{curr_mask}
+          sub x29, x29, 1
+          ldr x30, [sp], 16
+          ret
+      ASM
+    end
+  end
+
+  io.string
+end
+
+def assemble(assembly)
+  sdk_path = `xcrun -sdk macosx --show-sdk-path`.strip
+  system("rm -f tmp")
+
+  Tempfile.create(["source", ".s"]) do |file|
+    file.write(assembly)
+    file.flush
+
+    system("as -arch arm64 #{file.path} -o #{file.path}.o")
+
+    system([
+      "ld #{file.path}.o -o tmp",
+      "-arch arm64",
+      "-syslibroot #{sdk_path}",
+      "-lSystem",
+    ].join(" "))
+  end
+
+  "./tmp"
+end
+
+def recursively_generate(n, string, remaining_waste, &block)
+  # For each digit.
+  1.upto(n) do |digit|
+
+    # Add the digit to the end of the string we've built so far.
+    new_string = string + [digit]
+
+    # Get the last n characters from the string.
+    tail = new_string[-n..]
+
+    # Check if this digit added a new permutation to the string.
+    added_a_permutation = tail.uniq.size == n
+
+    # If we added a permutation too soon, don't expand this string any further.
+    # This ensures no permutation appears more than once in the final string.
+    next if added_a_permutation && remaining_waste > 0
+
+    # If we've wasted enough characters, we can now yield the tail of the
+    # string, but only if it just added a permutation.
+    if remaining_waste == 0
+      yield tail if added_a_permutation
+    else
+      # Otherwise, call recursively, decrementing the remaining waste.
+      recursively_generate(n, new_string, remaining_waste - 1, &block)
+    end
+  end
+end
+
+def bitset_position(perm)
+  if PALINDROMIC && perm.first > perm.last
+    position = @permutation_ids[perm.reverse]
+  else
+    position = @permutation_ids[perm]
+  end
+
+  bitset_index, bit_index = position.divmod(64)
+  bitmask = 2 ** bit_index
+
+  [bitset_index, bit_index, bitmask]
+end
+
+# Give each permutation a unique id (index).
+def set_permutation_ids(n)
+  @permutation_ids = {}
+
+  1.upto(n).to_a.permutation do |perm|
+    @permutation_ids[perm] = @permutation_ids.size
+  end
+end
+
+incremental(n)
