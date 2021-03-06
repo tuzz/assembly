@@ -7,7 +7,12 @@ if n == 0
   exit 1
 end
 
+# Enable to only search for palindromic superpermutations.
 PALINDROMIC = false
+
+# If the search has been run before, this array can be set to the solutions to
+# previous subproblems so that we can continue where we left off.
+MAX_PERMS = []
 
 def generate(n)
   set_permutation_ids(n)
@@ -84,7 +89,9 @@ end
 
 def print_main(n)
   start_perm = 1.upto(n).to_a.join
+
   num_perms = 1.upto(n).inject(:*)
+  num_perms /= 2 if PALINDROMIC
 
   puts <<~ASM
     .global _main
@@ -143,10 +150,22 @@ def print_main(n)
       mov visited_10, 0
       mov visited_11, 0
 
+      mov tmp_0, 0
       mov max_waste, 0
-      mov rem_waste, 0
+  ASM
 
-      mov best_depth, sp
+  MAX_PERMS.each do |p|
+    puts
+    puts "  mov tmp_0, #{p}"
+    puts "  str tmp_0, [max_perms, max_waste, lsl 3]"
+    puts "  add max_waste, max_waste, 1"
+  end
+
+  puts <<~ASM
+    \
+
+      sub best_depth, sp, tmp_0, lsl 4
+      mov rem_waste, max_waste
 
       next_subproblem:
 
@@ -180,7 +199,7 @@ def print_main(n)
       add max_waste, max_waste, 1
       mov rem_waste, max_waste
 
-      cmp tmp_0, #{num_perms}
+      cmp x24, #{num_perms}
       b.ne next_subproblem
 
       mov sys_call, 1

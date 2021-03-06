@@ -78,14 +78,33 @@ _main:
   mov visited_10, 0
   mov visited_11, 0
 
-  ; Initially, we don't allow the string to contain any 'wasted' characters.
+  mov tmp_0, 0
+  mov max_waste, 0
+
+  ; Initialize the max_perms array to the values we've already found for the
+  ; number of permutations that fit into a string that wastes i characters.
+  ;
   ; A wasted character is one that doesn't add a new permutation to the string.
   ; For example, '123456' + '2' == '1234562' and '234562' isn't a permutation.
-  mov max_waste, 0
-  mov rem_waste, 0
+  mov tmp_0, 6
+  str tmp_0, [max_perms, max_waste, lsl 3]
+  add max_waste, max_waste, 1
 
-  ; The best depth we've seen so far is no depth, i.e. the current stack pointer.
-  mov best_depth, sp
+  mov tmp_0, 12
+  str tmp_0, [max_perms, max_waste, lsl 3]
+  add max_waste, max_waste, 1
+
+  ; (The above lines can be omitted if running the search from scratch.)
+
+  ; The best depth we've seen so far is the current stack pointer reduced by the
+  ; maximum number of permutations we've seen, or 0 if running from scratch.
+  ;
+  ; We might actually want to set this 1..N - 1 higher if a previous run of the
+  ; algorithm got further but didn't exhaust the search space for the subproblem.
+  sub best_depth, sp, tmp_0, lsl 4
+
+  ; Allow max_waste wasted characters when solving the first subproblem.
+  mov rem_waste, max_waste
 
   next_subproblem:
 
@@ -109,7 +128,7 @@ _main:
   mov rem_waste, max_waste
 
   ; If we didn't reach all N! permutations, start solving the next subproblem.
-  cmp tmp_0, 720
+  cmp tmp_0, 720 ; or 360 if we're solving the palindromic version.
   b.ne next_subproblem
 
   ; Exit the program with status code 0.
@@ -257,9 +276,6 @@ todo:
 ;
 ; The best known superpermutation for N=6 has 872 characters and it therefore
 ; wastes 872 - n! - (n - 1) = 147 characters so 200 elements should be enough.
-;
-; We initialize the array to large values because we don't yet know what the
-; maximum number of permutations is for each number of wasted characters.
 .data
 max_perms_array:
   .fill 200, 8, 0
