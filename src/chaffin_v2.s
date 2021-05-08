@@ -142,13 +142,22 @@ new_best_depth_found:
   ; We know that best_depth equals the current stack pointer at present.
   mov best_depth, tmp_0
 
-  ; TODO: Print string by storing it on the stack. The second register can be
-  ; shared and contain two 32-bit integers for 'rem_waste' and 'permutation_id'
-  ; or just simply the digit that was added to the end of the string.
+  mov x28, tmp_0
+
+  print_chevron:
   mov sys_call, 4
   mov sysarg_0, 1
-  adr sysarg_1, todo
-  mov sysarg_2, 23
+  adr sysarg_1, chevron
+  mov sysarg_2, 1
+  svc 0
+
+  adds x28, x28, 16
+  b.lt print_chevron
+
+  mov sys_call, 4
+  mov sysarg_0, 1
+  adr sysarg_1, newline
+  mov sysarg_2, 1
   svc 0
 
   ; Restore tmp_0 to what it was previously.
@@ -268,8 +277,12 @@ visit_345621:
 
   ret
 
-todo:
-  .ascii "todo: print the string\n"
+chevron:
+  .ascii ">"
+  .align 4
+
+newline:
+  .ascii "\n"
 
 ; Store an array of 64-bit / 8-byte values to hold the maximum number of
 ; permutations that fit into a string that contains i wasted characters.

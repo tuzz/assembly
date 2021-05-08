@@ -214,11 +214,22 @@ def print_new_best_depth_fn
 
     new_best_depth_found:
       mov best_depth, tmp_0
+      mov x28, tmp_0
+
+      print_chevron:
+      mov sys_call, 4
+      mov sysarg_0, 1
+      adr sysarg_1, chevron
+      mov sysarg_2, 1
+      svc 0
+
+      adds x28, x28, 16
+      b.lt print_chevron
 
       mov sys_call, 4
       mov sysarg_0, 1
-      adr sysarg_1, todo
-      mov sysarg_2, 23
+      adr sysarg_1, newline
+      mov sysarg_2, 1
       svc 0
 
       mov tmp_0, best_depth
@@ -232,8 +243,8 @@ def print_globals
   puts <<~ASM
 
 
-    todo:
-      .ascii "todo: print the string\\n"
+    chevron:
+      .ascii ">"
       .align 4
 
     dot:
