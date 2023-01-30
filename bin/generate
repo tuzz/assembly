@@ -14,21 +14,24 @@ PALINDROMIC = false
 # previous subproblems so that we can continue where we left off.
 MAX_PERMS = []
 
+# Whether to output a TSPLIB format file instead of assembly.
+TSPLIB = true
+
 def generate(n)
   set_permutation_ids(n)
 
-  print_main(n)
-  print_new_best_depth_fn
+  print_main(n) unless TSPLIB
+  print_new_best_depth_fn unless TSPLIB
 
   # For each permutation of n digits.
   1.upto(n).to_a.permutation do |perm|
-    print_node_pre(perm)
+    print_node_pre(perm) unless TSPLIB
 
     # For an increasing number of wasted characters. This limits the maximum
     # number of wasted characters to n - 2, which means there must be _some_
     # overlap of characters between permutations - they are not disjoint.
     0.upto(n - 2) do |waste|
-      print_waste_a(perm, waste) unless waste.zero?
+      print_waste_a(perm, waste) if !waste.zero? && !TSPLIB
 
       # Recursively generate the list of next permutations that can be reached
       # from this one if the given number of characters are wasted.
@@ -38,16 +41,16 @@ def generate(n)
         # There's no point adding edges that go back to the start node (123456).
         next if next_perm.sort == next_perm
 
-        print_edge(perm, next_perm)
+        print_edge(perm, next_perm) unless TSPLIB
       end
 
-      print_waste_b(perm, waste) if waste.zero?
+      print_waste_b(perm, waste) if waste.zero? && !TSPLIB
     end
 
-    print_node_post(perm)
+    print_node_post(perm) unless TSPLIB
   end
 
-  print_globals
+  print_globals unless TSPLIB
 end
 
 def recursively_generate(n, string, remaining_waste, &block)
